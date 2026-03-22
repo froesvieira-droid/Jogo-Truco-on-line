@@ -1,0 +1,5 @@
+{
+  "name": "Truco Multiplayer",
+  "description": "Um jogo de Truco multiplayer em tempo real para até 4 jogadores.",
+  "requestFramePermissions": []
+}
