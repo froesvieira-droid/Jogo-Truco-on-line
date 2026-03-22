@@ -11,17 +11,24 @@ async function startServer() {
     cors: {
       origin: "*",
     },
+    transports: ["websocket"], // Forçar websocket para evitar problemas de proxy
   });
 
   const PORT = 3000;
+
+  // Health check
+  app.get("/api/ping", (req, res) => {
+    res.json({ status: "ok", time: new Date().toISOString() });
+  });
 
   // Game State Management
   const rooms = new Map();
 
   io.on("connection", (socket) => {
-    console.log("User connected:", socket.id);
+    console.log("Novo jogador conectado:", socket.id);
 
     socket.on("join_room", ({ roomId, playerName }) => {
+      console.log(`Jogador ${playerName} entrando na sala ${roomId}`);
       socket.join(roomId);
       
       if (!rooms.has(roomId)) {

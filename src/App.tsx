@@ -12,7 +12,11 @@ import { motion, AnimatePresence } from 'motion/react';
 import confetti from 'canvas-confetti';
 import { Trophy, Users, Play, LogOut, MessageSquare, ShieldAlert } from 'lucide-react';
 
-const socket: Socket = io();
+const socket: Socket = io(window.location.origin, {
+  transports: ['websocket'],
+  reconnectionAttempts: 5,
+  reconnectionDelay: 2000,
+});
 
 export default function App() {
   const [playerName, setPlayerName] = useState('');
@@ -20,9 +24,36 @@ export default function App() {
   const [joined, setJoined] = useState(false);
   const [room, setRoom] = useState<Room | null>(null);
   const [trucoCall, setTrucoCall] = useState<{ callerName: string; nextPoints: number } | null>(null);
+  const [isConnected, setIsConnected] = useState(socket.connected);
 
   useEffect(() => {
+    // Check server health
+    fetch('/api/ping')
+      .then(r => r.json())
+      .then(data => console.log('Servidor respondendo:', data))
+      .catch(err => console.error('Servidor inacessível:', err));
+
+    function onConnect() {
+      setIsConnected(true);
+      console.log('Conectado ao servidor de Truco');
+    }
+
+    function onDisconnect() {
+      setIsConnected(false);
+      console.log('Desconectado do servidor');
+    }
+
+    function onConnectError(err: any) {
+      console.error('Erro de conexão:', err);
+      setIsConnected(false);
+    }
+
+    socket.on('connect', onConnect);
+    socket.on('disconnect', onDisconnect);
+    socket.on('connect_error', onConnectError);
+
     socket.on('room_update', (updatedRoom: Room) => {
+      console.log('Atualização da sala recebida:', updatedRoom);
       setRoom(updatedRoom);
       if (updatedRoom.gameState === 'finished') {
         confetti({
@@ -38,6 +69,9 @@ export default function App() {
     });
 
     return () => {
+      socket.off('connect', onConnect);
+      socket.off('disconnect', onDisconnect);
+      socket.off('connect_error', onConnectError);
       socket.off('room_update');
       socket.off('truco_called');
     };
@@ -76,11 +110,19 @@ export default function App() {
           className="bg-white/10 backdrop-blur-md p-8 rounded-3xl border border-white/20 w-full max-w-md shadow-2xl"
         >
           <div className="flex flex-col items-center mb-8">
-            <div className="w-20 h-20 bg-yellow-500 rounded-full flex items-center justify-center mb-4 shadow-lg">
-              <Trophy className="text-white w-10 h-10" />
+            <div className="relative">
+              <div className="w-20 h-20 bg-yellow-500 rounded-full flex items-center justify-center mb-4 shadow-lg">
+                <Trophy className="text-white w-10 h-10" />
+              </div>
+              <div className={cn(
+                "absolute bottom-4 right-0 w-5 h-5 rounded-full border-4 border-emerald-900 shadow-sm",
+                isConnected ? "bg-green-500" : "bg-red-500 animate-pulse"
+              )} title={isConnected ? "Conectado" : "Desconectado"} />
             </div>
             <h1 className="text-4xl font-black text-white tracking-tighter uppercase italic">Truco Online</h1>
-            <p className="text-emerald-200 text-sm mt-2">Jogue com seus amigos na rede local</p>
+            <p className="text-emerald-200 text-sm mt-2">
+              {isConnected ? "Pronto para jogar!" : "Tentando conectar ao servidor..."}
+            </p>
           </div>
 
           <div className="space-y-4">
