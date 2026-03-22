@@ -25,26 +25,34 @@ export default function App() {
   const [room, setRoom] = useState<Room | null>(null);
   const [trucoCall, setTrucoCall] = useState<{ callerName: string; nextPoints: number } | null>(null);
   const [isConnected, setIsConnected] = useState(socket.connected);
+  const [lastError, setLastError] = useState<string | null>(null);
+  const [showDebug, setShowDebug] = useState(false);
 
   useEffect(() => {
     // Check server health
     fetch('/api/ping')
       .then(r => r.json())
       .then(data => console.log('Servidor respondendo:', data))
-      .catch(err => console.error('Servidor inacessível:', err));
+      .catch(err => {
+        console.error('Servidor inacessível:', err);
+        setLastError(`Servidor inacessível: ${err.message}`);
+      });
 
     function onConnect() {
       setIsConnected(true);
+      setLastError(null);
       console.log('Conectado ao servidor de Truco');
     }
 
-    function onDisconnect() {
+    function onDisconnect(reason: string) {
       setIsConnected(false);
-      console.log('Desconectado do servidor');
+      setLastError(`Desconectado: ${reason}`);
+      console.log('Desconectado do servidor:', reason);
     }
 
     function onConnectError(err: any) {
       console.error('Erro de conexão:', err);
+      setLastError(`Erro de conexão: ${err.message}`);
       setIsConnected(false);
     }
 
@@ -151,6 +159,41 @@ export default function App() {
             >
               Entrar na Mesa
             </button>
+
+            <button 
+              onClick={() => setShowDebug(!showDebug)}
+              className="w-full text-[10px] text-white/30 uppercase tracking-widest hover:text-white transition-colors mt-4"
+            >
+              {showDebug ? "Ocultar Diagnóstico" : "Ver Diagnóstico do Servidor"}
+            </button>
+
+            {showDebug && (
+              <motion.div 
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                className="mt-4 p-4 bg-black/40 rounded-xl border border-white/10 text-[10px] font-mono space-y-1"
+              >
+                <div className="flex justify-between">
+                  <span>Status:</span>
+                  <span className={isConnected ? "text-green-400" : "text-red-400"}>
+                    {isConnected ? "CONECTADO" : "DESCONECTADO"}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Socket ID:</span>
+                  <span className="text-white/60">{socket.id || "---"}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Transporte:</span>
+                  <span className="text-white/60">WebSocket</span>
+                </div>
+                {lastError && (
+                  <div className="text-red-400 mt-2 break-all">
+                    Erro: {lastError}
+                  </div>
+                )}
+              </motion.div>
+            )}
           </div>
         </motion.div>
       </div>
