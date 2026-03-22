@@ -12,10 +12,9 @@ import { motion, AnimatePresence } from 'motion/react';
 import confetti from 'canvas-confetti';
 import { Trophy, Users, Play, LogOut, MessageSquare, ShieldAlert } from 'lucide-react';
 
-const socket: Socket = io(window.location.origin, {
-  transports: ['websocket'],
-  reconnectionAttempts: 5,
-  reconnectionDelay: 2000,
+const socket: Socket = io({
+  reconnectionAttempts: 10,
+  reconnectionDelay: 1000,
 });
 
 export default function App() {
@@ -185,8 +184,17 @@ export default function App() {
                 </div>
                 <div className="flex justify-between">
                   <span>Transporte:</span>
-                  <span className="text-white/60">WebSocket</span>
+                  <span className="text-white/60">{socket.io?.engine?.transport?.name || "---"}</span>
                 </div>
+                <button 
+                  onClick={() => {
+                    socket.disconnect();
+                    socket.connect();
+                  }}
+                  className="w-full mt-2 bg-white/10 hover:bg-white/20 py-1 rounded text-[8px] transition-colors"
+                >
+                  FORÇAR RECONEXÃO
+                </button>
                 {lastError && (
                   <div className="text-red-400 mt-2 break-all">
                     Erro: {lastError}

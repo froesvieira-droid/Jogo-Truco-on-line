@@ -10,8 +10,9 @@ async function startServer() {
   const io = new Server(httpServer, {
     cors: {
       origin: "*",
+      methods: ["GET", "POST"]
     },
-    transports: ["websocket"], // Forçar websocket para evitar problemas de proxy
+    allowEIO3: true // Compatibilidade extra
   });
 
   const PORT = 3000;
