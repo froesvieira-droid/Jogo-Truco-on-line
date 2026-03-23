@@ -12,12 +12,12 @@ import { motion, AnimatePresence } from 'motion/react';
 import confetti from 'canvas-confetti';
 import { Trophy, Users, Play, LogOut, MessageSquare, ShieldAlert } from 'lucide-react';
 
-const socket: Socket = io(window.location.origin, {
+const socket: Socket = io({
   path: "/socket.io/",
   transports: ['polling', 'websocket'],
-  reconnectionAttempts: 10,
+  reconnectionAttempts: 20,
   reconnectionDelay: 1000,
-  timeout: 20000,
+  timeout: 45000,
 });
 
 export default function App() {
@@ -29,26 +29,8 @@ export default function App() {
   const [isConnected, setIsConnected] = useState(socket.connected);
   const [lastError, setLastError] = useState<string | null>(null);
   const [showDebug, setShowDebug] = useState(false);
-  const [networkStatus, setNetworkStatus] = useState<string>('Aguardando teste...');
-
-  const testNetwork = async () => {
-    setNetworkStatus('Testando...');
-    try {
-      const start = Date.now();
-      const res = await fetch('/api/ping');
-      const data = await res.json();
-      const duration = Date.now() - start;
-      setNetworkStatus(`OK (${duration}ms) - Servidor Online`);
-      console.log('Teste de rede:', data);
-    } catch (err: any) {
-      setNetworkStatus(`ERRO: ${err.message}`);
-      console.error('Falha no teste de rede:', err);
-    }
-  };
 
   useEffect(() => {
-    testNetwork();
-
     function onConnect() {
       setIsConnected(true);
       setLastError(null);
@@ -195,18 +177,10 @@ export default function App() {
                   <span className="text-white/60">{socket.id || "---"}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span>Rede API:</span>
-                  <span className={networkStatus.includes('OK') ? "text-green-400" : "text-yellow-400"}>
-                    {networkStatus}
-                  </span>
+                  <span>Transporte:</span>
+                  <span className="text-white/60">{socket.io?.engine?.transport?.name || "---"}</span>
                 </div>
                 <div className="flex flex-col gap-1 mt-2">
-                  <button 
-                    onClick={testNetwork}
-                    className="w-full bg-blue-600/40 hover:bg-blue-600/60 py-1 rounded text-[8px] transition-colors"
-                  >
-                    TESTAR REDE (PING)
-                  </button>
                   <button 
                     onClick={() => {
                       socket.disconnect();
@@ -214,7 +188,7 @@ export default function App() {
                     }}
                     className="w-full bg-white/10 hover:bg-white/20 py-1 rounded text-[8px] transition-colors"
                   >
-                    FORÇAR RECONEXÃO SOCKET
+                    TENTAR RECONECTAR AGORA
                   </button>
                 </div>
                 {lastError && (

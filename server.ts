@@ -7,13 +7,12 @@ import { createServer as createViteServer } from "vite";
 async function startServer() {
   const app = express();
   const httpServer = createServer(app);
+  
+  // Configuração do Socket.io
   const io = new Server(httpServer, {
     path: "/socket.io/",
     cors: {
-      origin: (origin, callback) => {
-        // Permitir qualquer origem para evitar problemas de proxy
-        callback(null, true);
-      },
+      origin: (origin, callback) => callback(null, true),
       methods: ["GET", "POST"],
       credentials: true
     },
@@ -24,14 +23,16 @@ async function startServer() {
 
   const PORT = 3000;
 
-  // Health check
+  // 1. MIDDLEWARES BÁSICOS
+  app.use(express.json());
+
+  // 2. ROTAS DE API (PRIORIDADE MÁXIMA)
   app.get("/api/ping", (req, res) => {
-    console.log("Ping recebido em:", new Date().toISOString());
+    console.log(`[${new Date().toISOString()}] Ping recebido de ${req.ip}`);
     res.json({ 
       status: "ok", 
       time: new Date().toISOString(),
-      env: process.env.NODE_ENV,
-      headers: req.headers
+      server: "Truco Server v2.0"
     });
   });
 
@@ -49,7 +50,7 @@ async function startServer() {
         rooms.set(roomId, {
           id: roomId,
           players: [],
-          gameState: "waiting", // waiting, playing, finished
+          gameState: "waiting",
           deck: [],
           currentTurn: 0,
           scores: { team1: 0, team2: 0 },
@@ -57,13 +58,11 @@ async function startServer() {
           cardsOnTable: [],
           manilha: null,
           vira: null,
-          rounds: [], // track sub-rounds (melhor de 3)
+          rounds: [],
         });
       }
 
       const room = rooms.get(roomId);
-      
-      // Check if player already in room (reconnection logic simplified)
       const existingPlayer = room.players.find(p => p.id === socket.id);
       if (!existingPlayer && room.players.length < 4) {
         const team = room.players.length % 2 === 0 ? 1 : 2;
@@ -105,10 +104,8 @@ async function startServer() {
         card
       });
 
-      // Move turn
       room.currentTurn = (room.currentTurn + 1) % room.players.length;
 
-      // Check if everyone played this sub-round
       if (room.cardsOnTable.length === room.players.length) {
         resolveSubRound(room, roomId);
       } else {
@@ -119,7 +116,6 @@ async function startServer() {
     socket.on("truco_request", ({ roomId }) => {
       const room = rooms.get(roomId);
       if (!room) return;
-      
       const player = room.players.find(p => p.id === socket.id);
       const nextPoints = room.roundPoints === 1 ? 3 : room.roundPoints + 3;
       if (nextPoints > 12) return;
@@ -139,7 +135,6 @@ async function startServer() {
         room.roundPoints = room.roundPoints === 1 ? 3 : room.roundPoints + 3;
         io.to(roomId).emit("room_update", room);
       } else {
-        // Team that refused loses the round
         const refuser = room.players.find(p => p.id === socket.id);
         const winnerTeam = refuser.team === 1 ? 2 : 1;
         endRound(room, winnerTeam, roomId);
@@ -148,49 +143,36 @@ async function startServer() {
 
     socket.on("disconnect", () => {
       console.log("User disconnected:", socket.id);
-      // Handle cleanup if needed
     });
   });
 
   function startNewRound(room) {
     const deck = createDeck();
     shuffle(deck);
-    
     room.vira = deck.pop();
     room.manilha = getManilha(room.vira);
     room.roundPoints = 1;
     room.cardsOnTable = [];
     room.rounds = [];
-    
     room.players.forEach(player => {
       player.cards = [deck.pop(), deck.pop(), deck.pop()];
     });
   }
 
   function resolveSubRound(room, roomId) {
-    // Logic to determine who won the sub-round
     const winner = determineWinner(room.cardsOnTable, room.manilha);
     room.rounds.push(winner.team);
     room.cardsOnTable = [];
-
-    // Set next turn to the winner
     const winnerPlayerIndex = room.players.findIndex(p => p.id === winner.playerId);
     room.currentTurn = winnerPlayerIndex;
 
-    // Check if round ended (best of 3)
     const team1Wins = room.rounds.filter(r => r === 1).length;
     const team2Wins = room.rounds.filter(r => r === 2).length;
 
-    if (team1Wins === 2) {
-      endRound(room, 1, roomId);
-    } else if (team2Wins === 2) {
-      endRound(room, 2, roomId);
-    } else if (room.rounds.length === 3) {
-      // Tie-break logic simplified
-      endRound(room, team1Wins > team2Wins ? 1 : 2, roomId);
-    } else {
-      io.to(roomId).emit("room_update", room);
-    }
+    if (team1Wins === 2) endRound(room, 1, roomId);
+    else if (team2Wins === 2) endRound(room, 2, roomId);
+    else if (room.rounds.length === 3) endRound(room, team1Wins > team2Wins ? 1 : 2, roomId);
+    else io.to(roomId).emit("room_update", room);
   }
 
   function endRound(room, winnerTeam, roomId) {
@@ -205,15 +187,12 @@ async function startServer() {
     io.to(roomId).emit("room_update", room);
   }
 
-  // Helper functions
   function createDeck() {
     const suits = ["hearts", "diamonds", "clubs", "spades"];
     const values = ["4", "5", "6", "7", "Q", "J", "K", "A", "2", "3"];
     const deck = [];
     for (const suit of suits) {
-      for (const value of values) {
-        deck.push({ value, suit });
-      }
+      for (const value of values) deck.push({ value, suit });
     }
     return deck;
   }
@@ -233,31 +212,23 @@ async function startServer() {
 
   function determineWinner(playedCards, manilhaValue) {
     const valueOrder = ["4", "5", "6", "7", "Q", "J", "K", "A", "2", "3"];
-    const suitOrder = ["diamonds", "spades", "hearts", "clubs"]; // For manilhas
-
+    const suitOrder = ["diamonds", "spades", "hearts", "clubs"];
     let bestCard = playedCards[0];
-
     for (let i = 1; i < playedCards.length; i++) {
       const current = playedCards[i];
       const isCurrentManilha = current.card.value === manilhaValue;
       const isBestManilha = bestCard.card.value === manilhaValue;
-
-      if (isCurrentManilha && !isBestManilha) {
-        bestCard = current;
-      } else if (isCurrentManilha && isBestManilha) {
-        if (suitOrder.indexOf(current.card.suit) > suitOrder.indexOf(bestCard.card.suit)) {
-          bestCard = current;
-        }
+      if (isCurrentManilha && !isBestManilha) bestCard = current;
+      else if (isCurrentManilha && isBestManilha) {
+        if (suitOrder.indexOf(current.card.suit) > suitOrder.indexOf(bestCard.card.suit)) bestCard = current;
       } else if (!isCurrentManilha && !isBestManilha) {
-        if (valueOrder.indexOf(current.card.value) > valueOrder.indexOf(bestCard.card.value)) {
-          bestCard = current;
-        }
+        if (valueOrder.indexOf(current.card.value) > valueOrder.indexOf(bestCard.card.value)) bestCard = current;
       }
     }
     return bestCard;
   }
 
-  // Vite Integration
+  // 3. INTEGRAÇÃO COM VITE / ARQUIVOS ESTÁTICOS
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -272,9 +243,12 @@ async function startServer() {
     });
   }
 
+  // 4. INICIALIZAÇÃO DO SERVIDOR
   httpServer.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`>>> SERVIDOR TRUCO ONLINE EM http://0.0.0.0:${PORT}`);
   });
 }
 
-startServer();
+startServer().catch(err => {
+  console.error("!!! FALHA CRÍTICA AO INICIAR SERVIDOR:", err);
+});
