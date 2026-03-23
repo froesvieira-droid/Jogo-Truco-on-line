@@ -12,9 +12,12 @@ import { motion, AnimatePresence } from 'motion/react';
 import confetti from 'canvas-confetti';
 import { Trophy, Users, Play, LogOut, MessageSquare, ShieldAlert } from 'lucide-react';
 
-const socket: Socket = io({
+const socket: Socket = io(window.location.origin, {
+  path: "/socket.io/",
+  transports: ['polling', 'websocket'],
   reconnectionAttempts: 10,
   reconnectionDelay: 1000,
+  timeout: 20000,
 });
 
 export default function App() {
@@ -26,16 +29,25 @@ export default function App() {
   const [isConnected, setIsConnected] = useState(socket.connected);
   const [lastError, setLastError] = useState<string | null>(null);
   const [showDebug, setShowDebug] = useState(false);
+  const [networkStatus, setNetworkStatus] = useState<string>('Aguardando teste...');
+
+  const testNetwork = async () => {
+    setNetworkStatus('Testando...');
+    try {
+      const start = Date.now();
+      const res = await fetch('/api/ping');
+      const data = await res.json();
+      const duration = Date.now() - start;
+      setNetworkStatus(`OK (${duration}ms) - Servidor Online`);
+      console.log('Teste de rede:', data);
+    } catch (err: any) {
+      setNetworkStatus(`ERRO: ${err.message}`);
+      console.error('Falha no teste de rede:', err);
+    }
+  };
 
   useEffect(() => {
-    // Check server health
-    fetch('/api/ping')
-      .then(r => r.json())
-      .then(data => console.log('Servidor respondendo:', data))
-      .catch(err => {
-        console.error('Servidor inacessível:', err);
-        setLastError(`Servidor inacessível: ${err.message}`);
-      });
+    testNetwork();
 
     function onConnect() {
       setIsConnected(true);
@@ -183,18 +195,28 @@ export default function App() {
                   <span className="text-white/60">{socket.id || "---"}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span>Transporte:</span>
-                  <span className="text-white/60">{socket.io?.engine?.transport?.name || "---"}</span>
+                  <span>Rede API:</span>
+                  <span className={networkStatus.includes('OK') ? "text-green-400" : "text-yellow-400"}>
+                    {networkStatus}
+                  </span>
                 </div>
-                <button 
-                  onClick={() => {
-                    socket.disconnect();
-                    socket.connect();
-                  }}
-                  className="w-full mt-2 bg-white/10 hover:bg-white/20 py-1 rounded text-[8px] transition-colors"
-                >
-                  FORÇAR RECONEXÃO
-                </button>
+                <div className="flex flex-col gap-1 mt-2">
+                  <button 
+                    onClick={testNetwork}
+                    className="w-full bg-blue-600/40 hover:bg-blue-600/60 py-1 rounded text-[8px] transition-colors"
+                  >
+                    TESTAR REDE (PING)
+                  </button>
+                  <button 
+                    onClick={() => {
+                      socket.disconnect();
+                      socket.connect();
+                    }}
+                    className="w-full bg-white/10 hover:bg-white/20 py-1 rounded text-[8px] transition-colors"
+                  >
+                    FORÇAR RECONEXÃO SOCKET
+                  </button>
+                </div>
                 {lastError && (
                   <div className="text-red-400 mt-2 break-all">
                     Erro: {lastError}

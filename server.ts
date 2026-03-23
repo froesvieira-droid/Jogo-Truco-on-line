@@ -8,18 +8,31 @@ async function startServer() {
   const app = express();
   const httpServer = createServer(app);
   const io = new Server(httpServer, {
+    path: "/socket.io/",
     cors: {
-      origin: "*",
-      methods: ["GET", "POST"]
+      origin: (origin, callback) => {
+        // Permitir qualquer origem para evitar problemas de proxy
+        callback(null, true);
+      },
+      methods: ["GET", "POST"],
+      credentials: true
     },
-    allowEIO3: true // Compatibilidade extra
+    allowEIO3: true,
+    pingTimeout: 60000,
+    pingInterval: 25000
   });
 
   const PORT = 3000;
 
   // Health check
   app.get("/api/ping", (req, res) => {
-    res.json({ status: "ok", time: new Date().toISOString() });
+    console.log("Ping recebido em:", new Date().toISOString());
+    res.json({ 
+      status: "ok", 
+      time: new Date().toISOString(),
+      env: process.env.NODE_ENV,
+      headers: req.headers
+    });
   });
 
   // Game State Management
