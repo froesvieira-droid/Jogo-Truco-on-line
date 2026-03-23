@@ -13,11 +13,9 @@ import confetti from 'canvas-confetti';
 import { Trophy, Users, Play, LogOut, MessageSquare, ShieldAlert } from 'lucide-react';
 
 const socket: Socket = io({
-  path: "/socket.io/",
-  transports: ['polling', 'websocket'],
-  reconnectionAttempts: 20,
+  reconnectionAttempts: 10,
   reconnectionDelay: 1000,
-  timeout: 45000,
+  autoConnect: true,
 });
 
 export default function App() {

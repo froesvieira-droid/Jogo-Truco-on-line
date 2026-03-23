@@ -10,15 +10,13 @@ async function startServer() {
   
   // Configuração do Socket.io
   const io = new Server(httpServer, {
-    path: "/socket.io/",
     cors: {
-      origin: (origin, callback) => callback(null, true),
+      origin: "*",
       methods: ["GET", "POST"],
       credentials: true
     },
     allowEIO3: true,
-    pingTimeout: 60000,
-    pingInterval: 25000
+    transports: ['polling', 'websocket']
   });
 
   const PORT = 3000;
@@ -27,13 +25,8 @@ async function startServer() {
   app.use(express.json());
 
   // 2. ROTAS DE API (PRIORIDADE MÁXIMA)
-  app.get("/api/ping", (req, res) => {
-    console.log(`[${new Date().toISOString()}] Ping recebido de ${req.ip}`);
-    res.json({ 
-      status: "ok", 
-      time: new Date().toISOString(),
-      server: "Truco Server v2.0"
-    });
+  app.get("/api/health", (req, res) => {
+    res.send("OK");
   });
 
   // Game State Management
