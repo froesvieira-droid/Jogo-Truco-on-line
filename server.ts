@@ -31,6 +31,7 @@ async function startServer() {
 
   // Game State Management
   const rooms = new Map();
+  const socketToPlayer = new Map();
 
   io.on("connection", (socket) => {
     console.log("Novo jogador conectado:", socket.id);
@@ -52,10 +53,13 @@ async function startServer() {
           manilha: null,
           vira: null,
           rounds: [],
+          messages: [],
         });
       }
 
       const room = rooms.get(roomId);
+      socketToPlayer.set(socket.id, { roomId, playerName });
+      
       const existingPlayer = room.players.find(p => p.id === socket.id);
       if (!existingPlayer && room.players.length < 4) {
         const team = room.players.length % 2 === 0 ? 1 : 2;
@@ -65,7 +69,10 @@ async function startServer() {
           team,
           cards: [],
           ready: false,
+          connected: true,
         });
+      } else if (existingPlayer) {
+        existingPlayer.connected = true;
       }
 
       io.to(roomId).emit("room_update", room);
@@ -134,8 +141,44 @@ async function startServer() {
       }
     });
 
+    socket.on("send_message", ({ roomId, text }) => {
+      const room = rooms.get(roomId);
+      if (!room) return;
+
+      const player = room.players.find(p => p.id === socket.id);
+      if (!player) return;
+
+      const message = {
+        id: Math.random().toString(36).substring(2, 9),
+        senderId: socket.id,
+        senderName: player.name,
+        text,
+        timestamp: Date.now(),
+      };
+
+      room.messages.push(message);
+      if (room.messages.length > 50) {
+        room.messages.shift();
+      }
+
+      io.to(roomId).emit("room_update", room);
+    });
+
     socket.on("disconnect", () => {
       console.log("User disconnected:", socket.id);
+      const playerInfo = socketToPlayer.get(socket.id);
+      if (playerInfo) {
+        const { roomId } = playerInfo;
+        const room = rooms.get(roomId);
+        if (room) {
+          const player = room.players.find(p => p.id === socket.id);
+          if (player) {
+            player.connected = false;
+            io.to(roomId).emit("room_update", room);
+          }
+        }
+        socketToPlayer.delete(socket.id);
+      }
     });
   });
 

@@ -10,7 +10,7 @@ import { Card } from './components/Card';
 import { cn } from './utils';
 import { motion, AnimatePresence } from 'motion/react';
 import confetti from 'canvas-confetti';
-import { Trophy, Users, Play, LogOut, MessageSquare, ShieldAlert } from 'lucide-react';
+import { Trophy, Users, Play, LogOut, MessageSquare, ShieldAlert, Send, X } from 'lucide-react';
 
 const socket: Socket = io({
   reconnectionAttempts: 10,
@@ -27,6 +27,15 @@ export default function App() {
   const [isConnected, setIsConnected] = useState(socket.connected);
   const [lastError, setLastError] = useState<string | null>(null);
   const [showDebug, setShowDebug] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [messageText, setMessageText] = useState('');
+  const chatEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (chatOpen) {
+      chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [room?.messages, chatOpen]);
 
   useEffect(() => {
     function onConnect() {
@@ -98,6 +107,14 @@ export default function App() {
   const handleTrucoResponse = (accepted: boolean) => {
     socket.emit('truco_response', { roomId, accepted });
     setTrucoCall(null);
+  };
+
+  const handleSendMessage = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (messageText.trim()) {
+      socket.emit('send_message', { roomId, text: messageText });
+      setMessageText('');
+    }
   };
 
   if (!joined) {
@@ -229,9 +246,25 @@ export default function App() {
           <span className="text-xs font-bold uppercase tracking-tighter">Valendo {room.roundPoints}</span>
         </div>
 
-        <button onClick={() => window.location.reload()} className="p-2 hover:bg-white/10 rounded-full transition-all">
-          <LogOut className="w-5 h-5 text-white/50" />
-        </button>
+        <div className="flex gap-2">
+          <button 
+            onClick={() => setChatOpen(!chatOpen)} 
+            className={cn(
+              "p-2 rounded-full transition-all relative",
+              chatOpen ? "bg-yellow-500 text-emerald-950" : "hover:bg-white/10 text-white/50"
+            )}
+          >
+            <MessageSquare className="w-5 h-5" />
+            {!chatOpen && room.messages.length > 0 && (
+              <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full text-[8px] flex items-center justify-center text-white font-bold">
+                {room.messages.length}
+              </span>
+            )}
+          </button>
+          <button onClick={() => window.location.reload()} className="p-2 hover:bg-white/10 rounded-full transition-all">
+            <LogOut className="w-5 h-5 text-white/50" />
+          </button>
+        </div>
       </div>
 
       {/* Game Table */}
@@ -271,7 +304,10 @@ export default function App() {
                     <div className="absolute -top-1 -right-1 w-4 h-4 bg-yellow-500 rounded-full animate-ping" />
                   )}
                 </div>
-                <span className="text-[10px] font-bold mt-1 bg-black/40 px-2 py-0.5 rounded uppercase">{p.name}</span>
+                <div className="flex items-center gap-1 mt-1 bg-black/40 px-2 py-0.5 rounded">
+                  <div className={cn("w-1.5 h-1.5 rounded-full", p.connected ? "bg-green-500" : "bg-red-500")} />
+                  <span className="text-[10px] font-bold uppercase">{p.name}</span>
+                </div>
                 <div className="flex gap-0.5 mt-1">
                   {p.cards.map((_, cIdx) => (
                     <div key={cIdx} className="w-2 h-3 bg-blue-900 rounded-sm border border-white/20" />
@@ -369,10 +405,14 @@ export default function App() {
             
             <div className="flex items-center gap-3">
               <div className={cn(
-                "w-10 h-10 rounded-full border-2 flex items-center justify-center bg-emerald-800",
+                "w-10 h-10 rounded-full border-2 flex items-center justify-center bg-emerald-800 relative",
                 isMyTurn ? "border-yellow-500 scale-110 shadow-[0_0_15px_rgba(234,179,8,0.5)]" : "border-white/20"
               )}>
                 <span className="text-sm font-bold">{playerName[0].toUpperCase()}</span>
+                <div className={cn(
+                  "absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-emerald-950",
+                  isConnected ? "bg-green-500" : "bg-red-500"
+                )} />
               </div>
               <div className="flex flex-col">
                 <span className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest">Sua Vez</span>
@@ -430,6 +470,75 @@ export default function App() {
                 </button>
               </div>
             </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Chat Sidebar */}
+      <AnimatePresence>
+        {chatOpen && (
+          <motion.div
+            initial={{ x: '100%' }}
+            animate={{ x: 0 }}
+            exit={{ x: '100%' }}
+            transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+            className="fixed top-0 right-0 bottom-0 w-full max-w-[320px] bg-emerald-950 border-l border-white/10 z-[110] flex flex-col shadow-2xl"
+          >
+            <div className="p-4 border-b border-white/10 flex justify-between items-center bg-black/20">
+              <div className="flex items-center gap-2">
+                <MessageSquare className="w-5 h-5 text-yellow-500" />
+                <h3 className="font-black uppercase tracking-tighter italic">Chat da Mesa</h3>
+              </div>
+              <button onClick={() => setChatOpen(false)} className="p-2 hover:bg-white/10 rounded-full transition-all">
+                <X className="w-5 h-5 text-white/50" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-hide">
+              {room.messages.length === 0 ? (
+                <div className="h-full flex flex-col items-center justify-center text-white/20 text-center p-8">
+                  <MessageSquare className="w-12 h-12 mb-2 opacity-10" />
+                  <p className="text-xs font-bold uppercase tracking-widest">Nenhuma mensagem ainda</p>
+                </div>
+              ) : (
+                room.messages.map((msg) => {
+                  const isMe = msg.senderId === socket.id;
+                  return (
+                    <div key={msg.id} className={cn("flex flex-col", isMe ? "items-end" : "items-start")}>
+                      <span className="text-[10px] font-bold text-white/40 mb-1 px-1">
+                        {isMe ? "Você" : msg.senderName}
+                      </span>
+                      <div className={cn(
+                        "max-w-[85%] px-3 py-2 rounded-2xl text-sm shadow-sm",
+                        isMe 
+                          ? "bg-yellow-500 text-emerald-950 rounded-tr-none" 
+                          : "bg-white/10 text-white rounded-tl-none border border-white/5"
+                      )}>
+                        {msg.text}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+              <div ref={chatEndRef} />
+            </div>
+
+            <form onSubmit={handleSendMessage} className="p-4 bg-black/40 border-t border-white/10 flex gap-2">
+              <input
+                type="text"
+                value={messageText}
+                onChange={(e) => setMessageText(e.target.value)}
+                placeholder="Enviar mensagem..."
+                className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-sm text-white placeholder:text-white/20 focus:outline-none focus:ring-2 focus:ring-yellow-500"
+              />
+              <button
+                type="submit"
+                disabled={!messageText.trim()}
+                className="bg-yellow-500 hover:bg-yellow-400 disabled:opacity-30 p-2 rounded-xl text-emerald-950 transition-all active:scale-95"
+              >
+                <Send className="w-5 h-5" />
+              </button>
+            </form>
           </motion.div>
         )}
       </AnimatePresence>

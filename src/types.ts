@@ -12,6 +12,7 @@ export interface Player {
   team: 1 | 2;
   cards: Card[];
   ready: boolean;
+  connected: boolean;
 }
 
 export interface PlayedCard {
@@ -32,4 +33,13 @@ export interface Room {
   manilha: CardValue | null;
   vira: Card | null;
   rounds: (1 | 2)[];
+  messages: ChatMessage[];
+}
+
+export interface ChatMessage {
+  id: string;
+  senderId: string;
+  senderName: string;
+  text: string;
+  timestamp: number;
 }
