@@ -10,7 +10,8 @@ import { Card } from './components/Card';
 import { cn } from './utils';
 import { motion, AnimatePresence } from 'motion/react';
 import confetti from 'canvas-confetti';
-import { Trophy, Users, Play, LogOut, MessageSquare, ShieldAlert, Send, X } from 'lucide-react';
+import { Trophy, Users, Play, LogOut, MessageSquare, ShieldAlert, Send, X, Cpu } from 'lucide-react';
+import { createDeck, shuffle, getManilha, determineWinner, startNewRound } from './lib/gameLogic';
 
 const socket: Socket = io({
   reconnectionAttempts: 10,
@@ -22,8 +23,9 @@ export default function App() {
   const [playerName, setPlayerName] = useState('');
   const [roomId, setRoomId] = useState('sala-truco');
   const [joined, setJoined] = useState(false);
+  const [isOffline, setIsOffline] = useState(false);
   const [room, setRoom] = useState<Room | null>(null);
-  const [trucoCall, setTrucoCall] = useState<{ callerName: string; nextPoints: number } | null>(null);
+  const [trucoCall, setTrucoCall] = useState<{ callerId?: string; callerName: string; nextPoints: number } | null>(null);
   const [isConnected, setIsConnected] = useState(socket.connected);
   const [lastError, setLastError] = useState<string | null>(null);
   const [showDebug, setShowDebug] = useState(false);
@@ -36,6 +38,29 @@ export default function App() {
       chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [room?.messages, chatOpen]);
+
+  useEffect(() => {
+    if (isOffline && room && room.gameState === "playing" && !trucoCall) {
+      const currentPlayer = room.players[room.currentTurn];
+      if (currentPlayer.id.startsWith("bot-")) {
+        const timeout = setTimeout(() => {
+          // 8% chance of bot calling truco if score is low and it's early in round
+          if (Math.random() < 0.08 && room.roundPoints < 12 && room.rounds.length < 2) {
+            setTrucoCall({ 
+              callerId: currentPlayer.id, 
+              callerName: currentPlayer.name, 
+              nextPoints: room.roundPoints === 1 ? 3 : room.roundPoints + 3 
+            });
+            return;
+          }
+
+          const cardIndex = Math.floor(Math.random() * currentPlayer.cards.length);
+          playLocalCard(cardIndex);
+        }, 1500);
+        return () => clearTimeout(timeout);
+      }
+    }
+  }, [isOffline, room?.currentTurn, room?.gameState, trucoCall]);
 
   useEffect(() => {
     function onConnect() {
@@ -87,26 +112,156 @@ export default function App() {
 
   const handleJoin = () => {
     if (playerName.trim()) {
+      setIsOffline(false);
       socket.emit('join_room', { roomId, playerName });
       setJoined(true);
     }
   };
 
+  const handleOfflineStart = () => {
+    setIsOffline(true);
+    setJoined(true);
+    const pName = playerName.trim() || 'Você';
+    setPlayerName(pName);
+    
+    const initialRoom: Room = {
+      id: 'offline-room',
+      players: [
+        { id: 'player-1', name: pName, team: 1, cards: [], ready: true, connected: true },
+        { id: 'bot-1', name: 'Bot 1', team: 2, cards: [], ready: true, connected: true },
+        { id: 'bot-2', name: 'Bot 2', team: 1, cards: [], ready: true, connected: true },
+        { id: 'bot-3', name: 'Bot 3', team: 2, cards: [], ready: true, connected: true },
+      ],
+      gameState: 'playing',
+      currentTurn: 0,
+      scores: { team1: 0, team2: 0 },
+      roundPoints: 1,
+      cardsOnTable: [],
+      manilha: null,
+      vira: null,
+      rounds: [],
+      messages: []
+    };
+    
+    startNewRound(initialRoom);
+    setRoom(initialRoom);
+  };
+
   const handleStart = () => {
-    socket.emit('start_game', roomId);
+    if (isOffline) {
+      if (room) {
+        const nextRoom = { ...room, gameState: 'playing' as const };
+        startNewRound(nextRoom);
+        setRoom(nextRoom);
+      }
+    } else {
+      socket.emit('start_game', roomId);
+    }
   };
 
   const handlePlayCard = (index: number) => {
-    socket.emit('play_card', { roomId, cardIndex: index });
+    if (isOffline) {
+      if (!room || room.gameState !== 'playing') return;
+      const player = room.players[room.currentTurn];
+      if (player.id !== 'player-1') return; // Not user's turn
+
+      playLocalCard(index);
+    } else {
+      socket.emit('play_card', { roomId, cardIndex: index });
+    }
+  };
+
+  const playLocalCard = (cardIndex: number) => {
+    if (!room) return;
+    const newRoom = { ...room };
+    const player = newRoom.players[newRoom.currentTurn];
+    const card = player.cards.splice(cardIndex, 1)[0];
+    
+    newRoom.cardsOnTable.push({
+      playerId: player.id,
+      playerName: player.name,
+      team: player.team,
+      card
+    });
+
+    newRoom.currentTurn = (newRoom.currentTurn + 1) % newRoom.players.length;
+
+    if (newRoom.cardsOnTable.length === newRoom.players.length) {
+      setTimeout(() => resolveLocalSubRound(newRoom), 1000);
+    }
+    setRoom(newRoom);
+  };
+
+  const resolveLocalSubRound = (currentRoom: Room) => {
+    const winner = determineWinner(currentRoom.cardsOnTable, currentRoom.manilha!);
+    currentRoom.rounds.push(winner.team);
+    currentRoom.cardsOnTable = [];
+    const winnerPlayerIndex = currentRoom.players.findIndex(p => p.id === winner.playerId);
+    currentRoom.currentTurn = winnerPlayerIndex;
+
+    const team1Wins = currentRoom.rounds.filter(r => r === 1).length;
+    const team2Wins = currentRoom.rounds.filter(r => r === 2).length;
+
+    if (team1Wins === 2) endLocalRound(currentRoom, 1);
+    else if (team2Wins === 2) endLocalRound(currentRoom, 2);
+    else if (currentRoom.rounds.length === 3) endLocalRound(currentRoom, team1Wins > team2Wins ? 1 : 2);
+    else setRoom({ ...currentRoom });
+  };
+
+  const endLocalRound = (currentRoom: Room, winnerTeam: 1 | 2) => {
+    if (winnerTeam === 1) currentRoom.scores.team1 += currentRoom.roundPoints;
+    else currentRoom.scores.team2 += currentRoom.roundPoints;
+
+    if (currentRoom.scores.team1 >= 12 || currentRoom.scores.team2 >= 12) {
+      currentRoom.gameState = 'finished';
+      if (currentRoom.scores.team1 >= 12 && isOffline) {
+        confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 } });
+      }
+    } else {
+      startNewRound(currentRoom);
+    }
+    setRoom({ ...currentRoom });
   };
 
   const handleTruco = () => {
-    socket.emit('truco_request', { roomId });
+    if (isOffline) {
+      // User calling truco
+      setTrucoCall({ callerId: 'player-1', callerName: playerName, nextPoints: room?.roundPoints === 1 ? 3 : (room?.roundPoints || 0) + 3 });
+      
+      // Simulate bots thinking and accepting
+      setTimeout(() => {
+        handleTrucoResponse(true);
+      }, 1500);
+    } else {
+      socket.emit('truco_request', { roomId });
+    }
   };
 
   const handleTrucoResponse = (accepted: boolean) => {
-    socket.emit('truco_response', { roomId, accepted });
-    setTrucoCall(null);
+    if (isOffline && room) {
+      const nextRoom = { ...room };
+      if (accepted) {
+        nextRoom.roundPoints = nextRoom.roundPoints === 1 ? 3 : nextRoom.roundPoints + 3;
+        setRoom(nextRoom);
+      } else {
+        // If user refused bot's call, bots win
+        // If bot refused user's call, user team wins
+        const loserId = trucoCall?.callerId === 'player-1' ? 'bot' : 'player-1'; 
+        // Simple: if user says "Correr", bots get the points. If bots (eventually) say "Correr", user gets the points.
+        // Since bots currently always accept user calls, if we are here and accepted is false, it means USER refused bot call.
+        const winnerTeam = (trucoCall?.callerId?.startsWith('bot')) ? (myTeam === 1 ? 2 : 1) : myTeam;
+        
+        // Wait, logic check: if caller was bot-1 (team 2) and user refused, team 2 should win.
+        const caller = room.players.find(p => p.id === trucoCall?.callerId);
+        const winTeam = caller?.team || (myTeam === 1 ? 2 : 1);
+        
+        endLocalRound(nextRoom, winTeam as 1 | 2);
+      }
+      setTrucoCall(null);
+    } else {
+      socket.emit('truco_response', { roomId, accepted });
+      setTrucoCall(null);
+    }
   };
 
   const handleSendMessage = (e: React.FormEvent) => {
@@ -137,7 +292,7 @@ export default function App() {
             </div>
             <h1 className="text-4xl font-black text-white tracking-tighter uppercase italic">Truco Online</h1>
             <p className="text-emerald-200 text-sm mt-2">
-              {isConnected ? "Pronto para jogar!" : "Tentando conectar ao servidor..."}
+              {isConnected ? "O servidor está online" : "Servidor offline (Jogue vs CPU)"}
             </p>
           </div>
 
@@ -166,6 +321,13 @@ export default function App() {
               className="w-full bg-yellow-500 hover:bg-yellow-400 text-emerald-950 font-black py-4 rounded-xl transition-all shadow-lg active:scale-95 uppercase tracking-tighter text-lg"
             >
               Entrar na Mesa
+            </button>
+
+            <button
+              onClick={handleOfflineStart}
+              className="w-full bg-white/10 hover:bg-white/20 text-white font-black py-4 rounded-xl transition-all border border-white/10 active:scale-95 uppercase tracking-tighter text-lg flex items-center justify-center gap-2"
+            >
+              <Cpu className="w-5 h-5" /> Modo Offline
             </button>
 
             <button 
@@ -221,8 +383,8 @@ export default function App() {
 
   if (!room) return <div className="min-h-screen bg-emerald-900 flex items-center justify-center text-white">Conectando...</div>;
 
-  const currentPlayer = room.players.find(p => p.id === socket.id);
-  const isMyTurn = room.players[room.currentTurn]?.id === socket.id;
+  const currentPlayer = isOffline ? room.players[0] : room.players.find(p => p.id === socket.id);
+  const isMyTurn = room.players[room.currentTurn]?.id === (isOffline ? 'player-1' : socket.id);
   const myTeam = currentPlayer?.team;
 
   return (
@@ -267,6 +429,12 @@ export default function App() {
         </div>
       </div>
 
+      {isOffline && (
+        <div className="bg-yellow-500/10 border-b border-yellow-500/20 px-4 py-1 text-center">
+          <span className="text-[10px] font-bold text-yellow-500 uppercase tracking-widest">Modo Offline • Jogando contra CPU</span>
+        </div>
+      )}
+
       {/* Game Table */}
       <div className="flex-1 relative flex items-center justify-center p-4">
         {/* Table Felt Pattern */}
@@ -287,7 +455,8 @@ export default function App() {
             ];
             
             // Reorder players so current user is always at bottom
-            const myIdx = room.players.findIndex(player => player.id === socket.id);
+            const myId = isOffline ? 'player-1' : socket.id;
+            const myIdx = room.players.findIndex(player => player.id === myId);
             const relativeIdx = (idx - myIdx + room.players.length) % room.players.length;
             
             if (relativeIdx === 0) return null; // Don't show me here

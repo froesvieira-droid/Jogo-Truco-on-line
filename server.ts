@@ -3,6 +3,7 @@ import { createServer } from "http";
 import { Server } from "socket.io";
 import path from "path";
 import { createServer as createViteServer } from "vite";
+import { startNewRound, determineWinner } from "./src/lib/gameLogic.js";
 
 async function startServer() {
   const app = express();
@@ -182,19 +183,6 @@ async function startServer() {
     });
   });
 
-  function startNewRound(room) {
-    const deck = createDeck();
-    shuffle(deck);
-    room.vira = deck.pop();
-    room.manilha = getManilha(room.vira);
-    room.roundPoints = 1;
-    room.cardsOnTable = [];
-    room.rounds = [];
-    room.players.forEach(player => {
-      player.cards = [deck.pop(), deck.pop(), deck.pop()];
-    });
-  }
-
   function resolveSubRound(room, roomId) {
     const winner = determineWinner(room.cardsOnTable, room.manilha);
     room.rounds.push(winner.team);
@@ -221,47 +209,6 @@ async function startServer() {
       startNewRound(room);
     }
     io.to(roomId).emit("room_update", room);
-  }
-
-  function createDeck() {
-    const suits = ["hearts", "diamonds", "clubs", "spades"];
-    const values = ["4", "5", "6", "7", "Q", "J", "K", "A", "2", "3"];
-    const deck = [];
-    for (const suit of suits) {
-      for (const value of values) deck.push({ value, suit });
-    }
-    return deck;
-  }
-
-  function shuffle(deck) {
-    for (let i = deck.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [deck[i], deck[j]] = [deck[j], deck[i]];
-    }
-  }
-
-  function getManilha(vira) {
-    const values = ["4", "5", "6", "7", "Q", "J", "K", "A", "2", "3"];
-    const viraIndex = values.indexOf(vira.value);
-    return values[(viraIndex + 1) % values.length];
-  }
-
-  function determineWinner(playedCards, manilhaValue) {
-    const valueOrder = ["4", "5", "6", "7", "Q", "J", "K", "A", "2", "3"];
-    const suitOrder = ["diamonds", "spades", "hearts", "clubs"];
-    let bestCard = playedCards[0];
-    for (let i = 1; i < playedCards.length; i++) {
-      const current = playedCards[i];
-      const isCurrentManilha = current.card.value === manilhaValue;
-      const isBestManilha = bestCard.card.value === manilhaValue;
-      if (isCurrentManilha && !isBestManilha) bestCard = current;
-      else if (isCurrentManilha && isBestManilha) {
-        if (suitOrder.indexOf(current.card.suit) > suitOrder.indexOf(bestCard.card.suit)) bestCard = current;
-      } else if (!isCurrentManilha && !isBestManilha) {
-        if (valueOrder.indexOf(current.card.value) > valueOrder.indexOf(bestCard.card.value)) bestCard = current;
-      }
-    }
-    return bestCard;
   }
 
   // 3. INTEGRAÇÃO COM VITE / ARQUIVOS ESTÁTICOS
