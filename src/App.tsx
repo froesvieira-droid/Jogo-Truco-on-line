@@ -10,7 +10,7 @@ import { Card } from './components/Card';
 import { cn } from './utils';
 import { motion, AnimatePresence } from 'motion/react';
 import confetti from 'canvas-confetti';
-import { Trophy, Users, Play, LogOut, MessageSquare, ShieldAlert, Send, X, Cpu } from 'lucide-react';
+import { Trophy, Users, Play, LogOut, MessageSquare, ShieldAlert, Send, X, Cpu, Share2, Copy, Check } from 'lucide-react';
 import { createDeck, shuffle, getManilha, determineWinner, startNewRound } from './lib/gameLogic';
 
 const socket: Socket = io({
@@ -21,7 +21,10 @@ const socket: Socket = io({
 
 export default function App() {
   const [playerName, setPlayerName] = useState('');
-  const [roomId, setRoomId] = useState('sala-truco');
+  const [roomId, setRoomId] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('room') || 'sala-truco';
+  });
   const [joined, setJoined] = useState(false);
   const [isOffline, setIsOffline] = useState(false);
   const [room, setRoom] = useState<Room | null>(null);
@@ -31,6 +34,7 @@ export default function App() {
   const [showDebug, setShowDebug] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [messageText, setMessageText] = useState('');
+  const [copied, setCopied] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -272,6 +276,32 @@ export default function App() {
     }
   };
 
+  const handleCopyLink = async () => {
+    const url = new URL(window.location.href);
+    url.searchParams.set('room', roomId);
+    const shareData = {
+      title: 'Truco Online',
+      text: 'Vem jogar Truco comigo!',
+      url: url.toString()
+    };
+
+    try {
+      if (navigator.share && navigator.canShare && navigator.canShare(shareData)) {
+        await navigator.share(shareData);
+      } else {
+        await navigator.clipboard.writeText(url.toString());
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      }
+    } catch (err) {
+      if ((err as Error).name !== 'AbortError') {
+        await navigator.clipboard.writeText(url.toString());
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      }
+    }
+  };
+
   if (!joined) {
     return (
       <div className="min-h-screen bg-emerald-900 flex items-center justify-center p-4 font-sans">
@@ -309,12 +339,21 @@ export default function App() {
             </div>
             <div>
               <label className="block text-xs font-bold text-emerald-300 uppercase tracking-widest mb-1 ml-1">ID da Sala</label>
-              <input
-                type="text"
-                value={roomId}
-                onChange={(e) => setRoomId(e.target.value)}
-                className="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-yellow-500 transition-all"
-              />
+              <div className="relative">
+                <input
+                  type="text"
+                  value={roomId}
+                  onChange={(e) => setRoomId(e.target.value)}
+                  className="w-full bg-black/20 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-yellow-500 transition-all pr-12"
+                />
+                <button 
+                  onClick={handleCopyLink}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-2 hover:bg-white/10 rounded-lg transition-all text-emerald-300"
+                  title="Copiar link de convite"
+                >
+                  {copied ? <Check className="w-5 h-5 text-green-400" /> : <Copy className="w-5 h-5" />}
+                </button>
+              </div>
             </div>
             <button
               onClick={handleJoin}
@@ -409,6 +448,20 @@ export default function App() {
         </div>
 
         <div className="flex gap-2">
+          {!isOffline && (
+            <button 
+              onClick={handleCopyLink}
+              className="p-2 hover:bg-white/10 rounded-full transition-all text-white/50 relative group"
+              title="Convidar Amigo"
+            >
+              {copied ? <Check className="w-5 h-5 text-green-400" /> : <Share2 className="w-5 h-5" />}
+              {copied && (
+                <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 bg-black/80 text-[10px] px-2 py-1 rounded text-white whitespace-nowrap">
+                  Link Copiado!
+                </span>
+              )}
+            </button>
+          )}
           <button 
             onClick={() => setChatOpen(!chatOpen)} 
             className={cn(
